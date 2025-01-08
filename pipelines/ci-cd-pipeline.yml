@@ -1,0 +1,65 @@
+trigger:
+- main
+
+pool:
+  name: Default
+  demands:
+    - agent.name -equals SelfHosted
+
+variables:
+  BackupPath: 'C:\\backups\\database.bak'
+  LocalServerName: 'localhost'
+  DatabaseName: 'MyDatabase'
+  SchemaFilePath: './schemas/schema.sql'
+  OnPremServerName: 'onprem-server'
+
+stages:
+- stage: Backup
+  displayName: "Backup Database"
+  jobs:
+  - job: Backup
+    displayName: "Backup Local SQL Server Database"
+    steps:
+    - task: PowerShell@2
+      displayName: "Run Database Backup Script"
+      inputs:
+        filePath: './scripts/backup-database.ps1'
+        arguments: "-ServerName $(LocalServerName) -DatabaseName $(DatabaseName) -BackupPath $(BackupPath)"
+        failOnStderr: true
+
+    - task: PublishBuildArtifacts@1
+      displayName: "Publish Backup File"
+      inputs:
+        artifactName: 'DatabaseBackup'
+        targetPath: '$(BackupPath)'
+
+- stage: Restore
+  displayName: "Restore Database"
+  dependsOn: Backup
+  jobs:
+  - job: Restore
+    displayName: "Restore Database on On-Premises SQL Server"
+    steps:
+    - download: current
+      artifact: DatabaseBackup
+
+    - task: PowerShell@2
+      displayName: "Run Restore Script"
+      inputs:
+        filePath: './scripts/restore-database.ps1'
+        arguments: "-ServerName $(OnPremServerName) -DatabaseName $(DatabaseName) -BackupPath $(Pipeline.Workspace)\\DatabaseBackup\\database.bak"
+        failOnStderr: true
+
+- stage: DeploySchema
+  displayName: "Deploy Database Schema"
+  dependsOn: Restore
+  jobs:
+  - job: Deploy
+    displayName: "Deploy Schema Changes"
+    steps:
+    - task: PowerShell@2
+      displayName: "Run Schema Deployment Script"
+      inputs:
+        filePath: './scripts/deploy-schema.ps1'
+        arguments: "-ServerName $(OnPremServerName) -DatabaseName $(DatabaseName) -SchemaFilePath $(SchemaFilePath)"
+        failOnStderr: true
