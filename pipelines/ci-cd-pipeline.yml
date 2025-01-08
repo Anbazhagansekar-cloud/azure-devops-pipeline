@@ -12,6 +12,7 @@ variables:
   DatabaseName: 'MyDatabase'
   SchemaFilePath: './schemas/schema.sql'
   OnPremServerName: 'onprem-server'
+  TargetSchemaPath: 'C:\\schemas\\schema.sql'
 
 stages:
 - stage: Backup
@@ -54,12 +55,25 @@ stages:
   displayName: "Deploy Database Schema"
   dependsOn: Restore
   jobs:
-  - job: Deploy
-    displayName: "Deploy Schema Changes"
+  - job: TransferSchemaFile
+    displayName: "Transfer Schema File to Target Server"
+    steps:
+    - task: CopyFilesOverSSH@0
+      displayName: "Transfer Schema File"
+      inputs:
+        sshEndpoint: 'OnPremSSHConnection'
+        sourceFolder: './schemas/'
+        contents: 'schema.sql'
+        targetFolder: 'C:\\schemas\\'
+        cleanTargetFolder: false
+
+  - job: DeploySchema
+    displayName: "Deploy Schema Updates"
+    dependsOn: TransferSchemaFile
     steps:
     - task: PowerShell@2
       displayName: "Run Schema Deployment Script"
       inputs:
         filePath: './scripts/deploy-schema.ps1'
-        arguments: "-ServerName $(OnPremServerName) -DatabaseName $(DatabaseName) -SchemaFilePath $(SchemaFilePath)"
+        arguments: "-ServerName $(OnPremServerName) -DatabaseName $(DatabaseName) -SchemaFilePath $(TargetSchemaPath)"
         failOnStderr: true
